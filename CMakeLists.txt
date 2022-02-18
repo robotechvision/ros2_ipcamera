@@ -20,7 +20,7 @@ find_package(cv_bridge REQUIRED)
 find_package(camera_info_manager REQUIRED)
 find_package(camera_calibration_parsers REQUIRED)
 find_package(image_transport REQUIRED)
-find_package(OpenCV 4 REQUIRED)
+find_package(OpenCV 4 REQUIRED COMPONENTS core highgui)
 
 include_directories(include)
 
@@ -38,7 +38,8 @@ ament_target_dependencies(ipcamera_component
   "sensor_msgs"
   "camera_info_manager"
   "camera_calibration_parsers"
-  "image_transport")
+  "image_transport"
+  "OpenCV")
 
 rclcpp_components_register_nodes(ipcamera_component "ros2_ipcamera::IpCamera")
 set(node_plugins "${node_plugins}ros2_ipcamera::IpCamera;$<TARGET_FILE:ipcamera_component>\n")
