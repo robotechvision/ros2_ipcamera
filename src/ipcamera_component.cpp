@@ -41,6 +41,8 @@ namespace ros2_ipcamera
     this->pub_ = image_transport::create_camera_publisher(
       this, "~/image_raw", qos_.get_rmw_qos_profile());
 
+    this->captured_image_ = std::make_shared<cv::Mat>();
+    this->capture_thread_ = std::thread(&IpCamera::capture, this);
     this->execute();
   }
 
@@ -48,6 +50,9 @@ namespace ros2_ipcamera
   : IpCamera::IpCamera("ipcamera", options)
   {}
 
+  IpCamera::~IpCamera() {
+    this->capture_thread_.join();
+  }
   void
   IpCamera::configure()
   {
@@ -66,6 +71,12 @@ namespace ros2_ipcamera
 
     this->get_parameter<int>("image_height", height_);
     RCLCPP_INFO(node_logger, "image_height: %d", height_);
+
+    this->get_parameter<int>("image_height", height_);
+    RCLCPP_INFO(node_logger, "image_height: %d", height_);
+
+    this->get_parameter<std::string>("frame_id", frame_id_);
+    RCLCPP_INFO(node_logger, "frame_id_: %s", frame_id_.c_str());
 
     // TODO(Tasuku): move to on_configure() when rclcpp_lifecycle available.
     this->cap_.open(source_);
@@ -119,6 +130,25 @@ namespace ros2_ipcamera
     image_height_descriptor.type =
       rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER;
     this->declare_parameter("image_height", 480, image_height_descriptor);
+
+    this->declare_parameter("frame_id", rclcpp::ParameterValue(std::string("camera_link")));
+  }
+
+  void IpCamera::capture()
+  {
+    auto frame1 = std::make_shared<cv::Mat>();
+    auto frame2 = std::make_shared<cv::Mat>();
+    bool capturingTo1 = true;
+    while (rclcpp::ok()) {
+      auto &frame = (capturingTo1 ? frame1 : frame2);
+      this->cap_ >> *frame;
+      capture_mutex_.lock();
+      captured_image_ = frame;
+      capture_mutex_.unlock();
+      capturingTo1 = !capturingTo1;
+      if (frame->empty())
+        rclcpp::Rate(freq_).sleep();
+    }
   }
 
   void
@@ -129,9 +159,7 @@ namespace ros2_ipcamera
     auto camera_info_msg = std::make_shared<sensor_msgs::msg::CameraInfo>(cinfo_manager_->getCameraInfo());
 
     // Initialize OpenCV image matrices.
-    cv::Mat frame;
-
-    size_t frame_id = 0;
+    
     // Our main event loop will spin until the user presses CTRL-C to exit.
     while (rclcpp::ok()) {
       // Initialize a shared pointer to an Image message.
@@ -139,14 +167,17 @@ namespace ros2_ipcamera
       msg->is_bigendian = false;
 
       // Get the frame from the video capture.
-      this->cap_ >> frame;
+      cv::Mat frame;
+      capture_mutex_.lock();
+      frame = *captured_image_;
+      capture_mutex_.unlock();
+
       // Check if the frame was grabbed correctly
       if (!frame.empty()) {
         // Convert to a ROS image
-        convert_frame_to_message(frame, frame_id, *msg, *camera_info_msg);
+        convert_frame_to_message(frame, frame_id_, *msg, *camera_info_msg);
         // Publish the image message and increment the frame_id.
         this->pub_.publish(std::move(msg), camera_info_msg);
-        ++frame_id;
       }
       loop_rate.sleep();
     }
@@ -172,7 +203,7 @@ namespace ros2_ipcamera
   void
   IpCamera::convert_frame_to_message(
     const cv::Mat & frame,
-    size_t frame_id,
+    std::string frame_id,
     sensor_msgs::msg::Image & msg,
     sensor_msgs::msg::CameraInfo & camera_info_msg)
   {
@@ -187,9 +218,9 @@ namespace ros2_ipcamera
 
     rclcpp::Time timestamp = this->get_clock()->now();
 
-    msg.header.frame_id = std::to_string(frame_id);
+    msg.header.frame_id = frame_id;
     msg.header.stamp = timestamp;
-    camera_info_msg.header.frame_id = std::to_string(frame_id);
+    camera_info_msg.header.frame_id = frame_id;
     camera_info_msg.header.stamp = timestamp;
   }
 }

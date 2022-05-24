@@ -45,6 +45,8 @@ namespace ros2_ipcamera
     COMPOSITION_PUBLIC
     explicit IpCamera(const rclcpp::NodeOptions & options);
 
+    COMPOSITION_PUBLIC
+    ~IpCamera();
     /**;
      * Configures component.
      *
@@ -80,14 +82,20 @@ namespace ros2_ipcamera
     std::string source_;
     int width_;
     int height_;
+    std::string frame_id_;
+
+    std::thread capture_thread_;
+    std::mutex capture_mutex_;
+    std::shared_ptr<cv::Mat> captured_image_;
 
     std::string
     mat_type2encoding(int mat_type);
 
+    void capture();
     void
     convert_frame_to_message(
       const cv::Mat & frame,
-      size_t frame_id,
+      std::string frame_id,
       sensor_msgs::msg::Image & msg,
       sensor_msgs::msg::CameraInfo & camera_info_msg);
   };
