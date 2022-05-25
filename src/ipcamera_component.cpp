@@ -141,15 +141,20 @@ namespace ros2_ipcamera
     bool capturingTo1 = true;
     while (rclcpp::ok()) {
       auto &frame = (capturingTo1 ? frame1 : frame2);
-      this->cap_ >> *frame;
+      bool success = cap_.grab();
       rclcpp::Time stamp = this->get_clock()->now();
-      capture_mutex_.lock();
-      captured_image_ = frame;
-      capture_stamp_ = stamp;
-      capture_mutex_.unlock();
-      capturingTo1 = !capturingTo1;
-      if (frame->empty())
+      if (success) {
+        success = cap_.retrieve(*frame);
+        capture_mutex_.lock();
+        captured_image_ = frame;
+        capture_stamp_ = stamp;
+        capture_mutex_.unlock();
+        capturingTo1 = !capturingTo1;
+      }
+      if (!success) {
+        RCLCPP_INFO(get_logger(), "Failed to capture a frame");
         rclcpp::Rate(freq_).sleep();
+      }
     }
   }
 
