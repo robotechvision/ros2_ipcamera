@@ -78,6 +78,8 @@ namespace ros2_ipcamera
     this->get_parameter<std::string>("frame_id", frame_id_);
     RCLCPP_INFO(node_logger, "frame_id_: %s", frame_id_.c_str());
 
+    this->get_parameter("rate", rate_);
+
     // TODO(Tasuku): move to on_configure() when rclcpp_lifecycle available.
     this->cap_.open(source_);
 
@@ -132,30 +134,20 @@ namespace ros2_ipcamera
     this->declare_parameter("image_height", 480, image_height_descriptor);
 
     this->declare_parameter("frame_id", rclcpp::ParameterValue(std::string("camera_link")));
+
+    this->declare_parameter("rate", rclcpp::ParameterValue(30.0));
   }
 
   void IpCamera::capture()
   {
-    auto frame1 = std::make_shared<cv::Mat>();
-    auto frame2 = std::make_shared<cv::Mat>();
-    bool capturingTo1 = true;
     while (rclcpp::ok()) {
-      auto &frame = (capturingTo1 ? frame1 : frame2);
+      capture_mutex_.lock();
       bool success = cap_.grab();
-      rclcpp::Time stamp = this->get_clock()->now();
-      if (success) {
-        success = cap_.retrieve(*frame);
-        if (success) {
-          capture_mutex_.lock();
-          captured_image_ = frame;
-          capture_stamp_ = stamp;
-          capture_mutex_.unlock();
-          capturingTo1 = !capturingTo1;
-        }
-      }
+      capture_stamp_ = now();
+      capture_mutex_.unlock();
       if (!success) {
         RCLCPP_INFO(get_logger(), "Failed to capture a frame");
-        rclcpp::Rate(freq_).sleep();
+        rclcpp::Rate(rate_).sleep();
       }
     }
   }
@@ -163,27 +155,31 @@ namespace ros2_ipcamera
   void
   IpCamera::execute()
   {
-    rclcpp::Rate loop_rate(freq_);
+    rclcpp::Rate loop_rate(rate_);
 
     auto camera_info_msg = std::make_shared<sensor_msgs::msg::CameraInfo>(cinfo_manager_->getCameraInfo());
 
     // Initialize OpenCV image matrices.
     
     // Our main event loop will spin until the user presses CTRL-C to exit.
+    cv::Mat frame;
+    rclcpp::Time stamp(0, 0, get_clock()->get_clock_type());
     while (rclcpp::ok()) {
       // Initialize a shared pointer to an Image message.
       auto msg = std::make_unique<sensor_msgs::msg::Image>();
       msg->is_bigendian = false;
 
       // Get the frame from the video capture.
-      cv::Mat frame;
+      bool success = false;
       capture_mutex_.lock();
-      frame = *captured_image_;
-      auto stamp = capture_stamp_;
+      if (capture_stamp_.nanoseconds() != stamp.nanoseconds()) {
+        success = cap_.retrieve(frame);
+        stamp = capture_stamp_;
+      }
       capture_mutex_.unlock();
 
       // Check if the frame was grabbed correctly
-      if (!frame.empty()) {
+      if (success) {
         // Convert to a ROS image
         convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
         // Publish the image message and increment the frame_id.

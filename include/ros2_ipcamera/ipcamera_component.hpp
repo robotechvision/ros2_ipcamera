@@ -76,7 +76,7 @@ namespace ros2_ipcamera
 
     image_transport::CameraPublisher pub_;
     rclcpp::QoS qos_;
-    std::chrono::milliseconds freq_ = 30ms;
+    double rate_;
 
     cv::VideoCapture cap_;
     std::string source_;
