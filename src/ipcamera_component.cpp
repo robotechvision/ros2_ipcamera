@@ -142,8 +142,10 @@ namespace ros2_ipcamera
     while (rclcpp::ok()) {
       auto &frame = (capturingTo1 ? frame1 : frame2);
       this->cap_ >> *frame;
+      rclcpp::Time stamp = this->get_clock()->now();
       capture_mutex_.lock();
       captured_image_ = frame;
+      capture_stamp_ = stamp;
       capture_mutex_.unlock();
       capturingTo1 = !capturingTo1;
       if (frame->empty())
@@ -170,12 +172,13 @@ namespace ros2_ipcamera
       cv::Mat frame;
       capture_mutex_.lock();
       frame = *captured_image_;
+      auto stamp = capture_stamp_;
       capture_mutex_.unlock();
 
       // Check if the frame was grabbed correctly
       if (!frame.empty()) {
         // Convert to a ROS image
-        convert_frame_to_message(frame, frame_id_, *msg, *camera_info_msg);
+        convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
         // Publish the image message and increment the frame_id.
         this->pub_.publish(std::move(msg), camera_info_msg);
       }
@@ -204,6 +207,7 @@ namespace ros2_ipcamera
   IpCamera::convert_frame_to_message(
     const cv::Mat & frame,
     std::string frame_id,
+    rclcpp::Time stamp,
     sensor_msgs::msg::Image & msg,
     sensor_msgs::msg::CameraInfo & camera_info_msg)
   {
@@ -216,12 +220,10 @@ namespace ros2_ipcamera
     msg.data.resize(size);
     memcpy(&msg.data[0], frame.data, size);
 
-    rclcpp::Time timestamp = this->get_clock()->now();
-
     msg.header.frame_id = frame_id;
-    msg.header.stamp = timestamp;
+    msg.header.stamp = stamp;
     camera_info_msg.header.frame_id = frame_id;
-    camera_info_msg.header.stamp = timestamp;
+    camera_info_msg.header.stamp = stamp;
   }
 }
 

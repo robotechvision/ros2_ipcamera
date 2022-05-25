@@ -87,6 +87,7 @@ namespace ros2_ipcamera
     std::thread capture_thread_;
     std::mutex capture_mutex_;
     std::shared_ptr<cv::Mat> captured_image_;
+    rclcpp::Time capture_stamp_;
 
     std::string
     mat_type2encoding(int mat_type);
@@ -96,6 +97,7 @@ namespace ros2_ipcamera
     convert_frame_to_message(
       const cv::Mat & frame,
       std::string frame_id,
+      rclcpp::Time stamp,
       sensor_msgs::msg::Image & msg,
       sensor_msgs::msg::CameraInfo & camera_info_msg);
   };
