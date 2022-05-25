@@ -145,11 +145,13 @@ namespace ros2_ipcamera
       rclcpp::Time stamp = this->get_clock()->now();
       if (success) {
         success = cap_.retrieve(*frame);
-        capture_mutex_.lock();
-        captured_image_ = frame;
-        capture_stamp_ = stamp;
-        capture_mutex_.unlock();
-        capturingTo1 = !capturingTo1;
+        if (success) {
+          capture_mutex_.lock();
+          captured_image_ = frame;
+          capture_stamp_ = stamp;
+          capture_mutex_.unlock();
+          capturingTo1 = !capturingTo1;
+        }
       }
       if (!success) {
         RCLCPP_INFO(get_logger(), "Failed to capture a frame");
