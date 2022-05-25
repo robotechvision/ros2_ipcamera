@@ -140,15 +140,22 @@ namespace ros2_ipcamera
 
   void IpCamera::capture()
   {
+//    auto clock_type = get_clock()->get_clock_type();
     while (rclcpp::ok()) {
+//       RCLCPP_INFO(get_logger(), "Grabbing: %lf", now().seconds());
       capture_mutex_.lock();
       bool success = cap_.grab();
       capture_stamp_ = now();
+//      double stamp = cap_.get(cv::CAP_PROP_POS_MSEC);
+//      capture_stamp_ = rclcpp::Time((int64_t)(stamp*1000000), clock_type);
       capture_mutex_.unlock();
+//      RCLCPP_INFO(get_logger(), "Grabbed: %lf", capture_stamp_.seconds());
       if (!success) {
         RCLCPP_INFO(get_logger(), "Failed to capture a frame");
         rclcpp::Rate(rate_).sleep();
       }
+      else
+        rclcpp::sleep_for(std::chrono::milliseconds(1));  // give retrieve thread a chance to enter the mutex... (TODO: more elegant solution?)
     }
   }
 
@@ -171,12 +178,15 @@ namespace ros2_ipcamera
 
       // Get the frame from the video capture.
       bool success = false;
+      // RCLCPP_INFO(get_logger(), "Retrieving: %lf/%lf", capture_stamp_.seconds(), stamp.seconds());
       capture_mutex_.lock();
+      // RCLCPP_INFO(get_logger(), "In lock");
       if (capture_stamp_.nanoseconds() != stamp.nanoseconds()) {
         success = cap_.retrieve(frame);
         stamp = capture_stamp_;
       }
       capture_mutex_.unlock();
+//      RCLCPP_INFO(get_logger(), "Retrieved %lf", stamp.seconds());
 
       // Check if the frame was grabbed correctly
       if (success) {
@@ -184,6 +194,7 @@ namespace ros2_ipcamera
         convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
         // Publish the image message and increment the frame_id.
         this->pub_.publish(std::move(msg), camera_info_msg);
+	// RCLCPP_INFO(get_logger(), "Published");
       }
       loop_rate.sleep();
     }
