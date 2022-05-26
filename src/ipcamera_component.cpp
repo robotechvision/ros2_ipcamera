@@ -24,7 +24,8 @@ namespace ros2_ipcamera
 {
   IpCamera::IpCamera(const std::string & node_name, const rclcpp::NodeOptions & options)
   : Node(node_name, options),
-    qos_(rclcpp::QoS(rclcpp::KeepLast(1)).best_effort())
+    qos_(rclcpp::QoS(rclcpp::KeepLast(1)).best_effort()),
+    transport_delay_(rclcpp::Duration::from_seconds(0))
   {
     RCLCPP_INFO(this->get_logger(), "namespace: %s", this->get_namespace());
     RCLCPP_INFO(this->get_logger(), "name: %s", this->get_name());
@@ -76,7 +77,12 @@ namespace ros2_ipcamera
     RCLCPP_INFO(node_logger, "image_height: %d", height_);
 
     this->get_parameter<std::string>("frame_id", frame_id_);
-    RCLCPP_INFO(node_logger, "frame_id_: %s", frame_id_.c_str());
+    RCLCPP_INFO(node_logger, "frame_id: %s", frame_id_.c_str());
+
+    double transport_delay;
+    this->get_parameter<double>("transport_delay", transport_delay);
+    RCLCPP_INFO(node_logger, "transport_delay: %lf", transport_delay);
+    transport_delay_ = rclcpp::Duration::from_seconds(transport_delay);
 
     this->get_parameter("rate", rate_);
 
@@ -134,6 +140,7 @@ namespace ros2_ipcamera
     this->declare_parameter("image_height", 480, image_height_descriptor);
 
     this->declare_parameter("frame_id", rclcpp::ParameterValue(std::string("camera_link")));
+    this->declare_parameter("transport_delay", rclcpp::ParameterValue(0.0));
 
     this->declare_parameter("rate", rclcpp::ParameterValue(30.0));
   }
@@ -145,7 +152,7 @@ namespace ros2_ipcamera
 //       RCLCPP_INFO(get_logger(), "Grabbing: %lf", now().seconds());
       capture_mutex_.lock();
       bool success = cap_.grab();
-      capture_stamp_ = now();
+      capture_stamp_ = now() - transport_delay_;
 //      double stamp = cap_.get(cv::CAP_PROP_POS_MSEC);
 //      capture_stamp_ = rclcpp::Time((int64_t)(stamp*1000000), clock_type);
       capture_mutex_.unlock();
