@@ -84,6 +84,7 @@ namespace ros2_ipcamera
     int height_;
     std::string frame_id_;
 
+    std::thread publish_thread_;
     std::thread capture_thread_;
     std::mutex capture_mutex_;
     std::shared_ptr<cv::Mat> captured_image_;

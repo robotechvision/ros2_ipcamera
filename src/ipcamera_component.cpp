@@ -44,7 +44,9 @@ namespace ros2_ipcamera
 
     this->captured_image_ = std::make_shared<cv::Mat>();
     this->capture_thread_ = std::thread(&IpCamera::capture, this);
-    this->execute();
+    // execute must be performed in another thread to prevent blocking component container spinning
+    // Note: a timer could be more elegant for this
+    this->publish_thread_ = std::thread(&IpCamera::execute, this);
   }
 
   IpCamera::IpCamera(const rclcpp::NodeOptions & options)
@@ -53,6 +55,7 @@ namespace ros2_ipcamera
 
   IpCamera::~IpCamera() {
     this->capture_thread_.join();
+    this->publish_thread_.join();
   }
   void
   IpCamera::configure()
