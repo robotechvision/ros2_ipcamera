@@ -20,6 +20,7 @@
 #include <rclcpp/logger.hpp>
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
+#include "sensor_msgs/msg/compressed_image.hpp"
 #include "ros2_ipcamera/visibility_control.hpp"
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <image_transport/image_transport.hpp>
@@ -75,6 +76,8 @@ namespace ros2_ipcamera
     std::string camera_calibration_file_param_;
 
     image_transport::CameraPublisher pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr img_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
     rclcpp::QoS qos_;
     double rate_;
 
@@ -83,6 +86,7 @@ namespace ros2_ipcamera
     int width_;
     int height_;
     std::string frame_id_;
+    bool fast_mjpg_republishing_;
 
     std::thread publish_thread_;
     std::thread capture_thread_;
@@ -102,6 +106,12 @@ namespace ros2_ipcamera
       rclcpp::Time stamp,
       sensor_msgs::msg::Image & msg,
       sensor_msgs::msg::CameraInfo & camera_info_msg);
+    void publish_fast(
+      const cv::Mat & frame,
+      std::string frame_id,
+      rclcpp::Time stamp,
+      const sensor_msgs::msg::CameraInfo::SharedPtr &cam_info
+    );
   };
 }  // namespace ros2_ipcamera
 

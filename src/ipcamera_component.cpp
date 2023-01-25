@@ -39,8 +39,13 @@ namespace ros2_ipcamera
 
     //TODO(Tasuku): add call back to handle parameter events.
     // Set up publishers.
-    this->pub_ = image_transport::create_camera_publisher(
-      this, "~/image_raw", qos_.get_rmw_qos_profile());
+    if (fast_mjpg_republishing_) {
+      img_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("~/image_raw/compressed", qos_);
+      info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("~/camera_info", qos_);
+    }
+    else
+      this->pub_ = image_transport::create_camera_publisher(
+        this, "~/image_raw", qos_.get_rmw_qos_profile());
 
     this->captured_image_ = std::make_shared<cv::Mat>();
     this->capture_thread_ = std::thread(&IpCamera::capture, this);
@@ -88,9 +93,13 @@ namespace ros2_ipcamera
     transport_delay_ = rclcpp::Duration::from_seconds(transport_delay);
 
     this->get_parameter("rate", rate_);
+    this->get_parameter("fast_mjpg_republishing", fast_mjpg_republishing_);
 
     // TODO(Tasuku): move to on_configure() when rclcpp_lifecycle available.
-    this->cap_.open(source_);
+    if (fast_mjpg_republishing_)
+      this->cap_.open(source_, cv::CAP_ANY, std::vector<int>({cv::CAP_PROP_FORMAT, -1}));
+    else
+      this->cap_.open(source_);
 
     // Set the width and height based on command line arguments.
     // The width, height has to match the available resolutions of the IP camera.
@@ -146,6 +155,8 @@ namespace ros2_ipcamera
     this->declare_parameter("transport_delay", rclcpp::ParameterValue(0.0));
 
     this->declare_parameter("rate", rclcpp::ParameterValue(30.0));
+
+    this->declare_parameter("fast_mjpg_republishing", rclcpp::ParameterValue(false));
   }
 
   void IpCamera::capture()
@@ -181,9 +192,9 @@ namespace ros2_ipcamera
     // Our main event loop will spin until the user presses CTRL-C to exit.
     cv::Mat frame;
     rclcpp::Time stamp(0, 0, get_clock()->get_clock_type());
+    auto msg = std::make_unique<sensor_msgs::msg::Image>();
     while (rclcpp::ok()) {
       // Initialize a shared pointer to an Image message.
-      auto msg = std::make_unique<sensor_msgs::msg::Image>();
       msg->is_bigendian = false;
 
       // Get the frame from the video capture.
@@ -200,10 +211,15 @@ namespace ros2_ipcamera
 
       // Check if the frame was grabbed correctly
       if (success) {
-        // Convert to a ROS image
-        convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
-        // Publish the image message and increment the frame_id.
-        this->pub_.publish(std::move(msg), camera_info_msg);
+        if (fast_mjpg_republishing_)
+          publish_fast(frame, frame_id_, stamp, camera_info_msg);
+        else {
+          // Convert to a ROS image
+          convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
+          // Publish the image message and increment the frame_id.
+          this->pub_.publish(std::move(msg), camera_info_msg);
+          msg = std::make_unique<sensor_msgs::msg::Image>();
+        }
 	// RCLCPP_INFO(get_logger(), "Published");
       }
       loop_rate.sleep();
@@ -248,6 +264,33 @@ namespace ros2_ipcamera
     msg.header.stamp = stamp;
     camera_info_msg.header.frame_id = frame_id;
     camera_info_msg.header.stamp = stamp;
+  }
+
+  constexpr const char* kDefaultFormat = "jpeg";
+  constexpr int kDefaultPngLevel = 3;
+  constexpr int kDefaultJpegQuality = 95;
+  void IpCamera::publish_fast(
+      const cv::Mat & frame,
+      std::string frame_id,
+      rclcpp::Time stamp,
+      const sensor_msgs::msg::CameraInfo::SharedPtr &cam_info
+    )
+  {
+    cam_info->header.frame_id = frame_id;
+    cam_info->header.stamp = stamp;
+    info_pub_->publish(*cam_info);
+
+    RCLCPP_INFO(get_logger(), "frame type: %s", mat_type2encoding(frame.type()).c_str());
+    auto img_msg_loan = img_pub_->borrow_loaned_message();
+    auto &msg = img_msg_loan.get();
+    msg.format = "bgr8; jpeg compressed bgr8";
+    size_t size = frame.cols*frame.rows;
+    msg.data.resize(size);
+    memcpy(&msg.data[0], frame.data, size);
+    msg.header.frame_id = frame_id;
+    msg.header.stamp = stamp;
+
+    img_pub_->publish(std::move(img_msg_loan));
   }
 }
 
