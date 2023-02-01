@@ -11,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// #define RTV_BENCHMARK
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -159,14 +161,39 @@ namespace ros2_ipcamera
     this->declare_parameter("fast_mjpg_republishing", rclcpp::ParameterValue(false));
   }
 
+#ifdef RTV_BENCHMARK
+  double cap_dur = 0;
+  double retr_dur = 0;
+  double conv_dur = 0;
+  double pub_dur = 0;
+  int cap_cnt = 0;
+  int retr_cnt = 0;
+  int conv_cnt = 0;
+  int pub_cnt = 0;
+#endif
+
   void IpCamera::capture()
   {
 //    auto clock_type = get_clock()->get_clock_type();
     while (rclcpp::ok()) {
 //       RCLCPP_INFO(get_logger(), "Grabbing: %lf", now().seconds());
       capture_mutex_.lock();
+#ifdef RTV_BENCHMARK
+      auto start = std::chrono::steady_clock::now();
+#endif
       bool success = cap_.grab();
       capture_stamp_ = now() - transport_delay_;
+#ifdef RTV_BENCHMARK
+      auto end = std::chrono::steady_clock::now();
+      double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+      auto &total_dur = cap_dur;
+      auto &total_cnt = cap_cnt;
+      if (floor(total_dur) != floor(total_dur + dur))
+        RCLCPP_INFO(get_logger(), "cap: %lf %d", total_dur + dur, total_cnt + 1);
+      total_dur += dur;
+      total_cnt++;
+#endif
+
 //      double stamp = cap_.get(cv::CAP_PROP_POS_MSEC);
 //      capture_stamp_ = rclcpp::Time((int64_t)(stamp*1000000), clock_type);
       capture_mutex_.unlock();
@@ -203,8 +230,21 @@ namespace ros2_ipcamera
       capture_mutex_.lock();
       // RCLCPP_INFO(get_logger(), "In lock");
       if (capture_stamp_.nanoseconds() != stamp.nanoseconds()) {
+#ifdef RTV_BENCHMARK
+        auto start = std::chrono::steady_clock::now();
+#endif        
         success = cap_.retrieve(frame);
         stamp = capture_stamp_;
+#ifdef RTV_BENCHMARK
+        auto end = std::chrono::steady_clock::now();
+        double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+        auto &total_dur = retr_dur;
+        auto &total_cnt = retr_cnt;
+        if (floor(total_dur) != floor(total_dur + dur))
+          RCLCPP_INFO(get_logger(), "retr: %lf %d", total_dur + dur, total_cnt + 1);
+        total_dur += dur;
+        total_cnt++;
+#endif
       }
       capture_mutex_.unlock();
 //      RCLCPP_INFO(get_logger(), "Retrieved %lf", stamp.seconds());
@@ -217,10 +257,22 @@ namespace ros2_ipcamera
           // Convert to a ROS image
           convert_frame_to_message(frame, frame_id_, stamp, *msg, *camera_info_msg);
           // Publish the image message and increment the frame_id.
+#ifdef RTV_BENCHMARK
+          auto start = std::chrono::steady_clock::now();
+#endif
           this->pub_.publish(std::move(msg), camera_info_msg);
           msg = std::make_unique<sensor_msgs::msg::Image>();
+#ifdef RTV_BENCHMARK
+          auto end = std::chrono::steady_clock::now();
+          double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+          auto &total_dur = pub_dur;
+          auto &total_cnt = pub_cnt;
+          if (floor(total_dur) != floor(total_dur + dur))
+            RCLCPP_INFO(get_logger(), "pub: %lf %d", total_dur + dur, total_cnt + 1);
+          total_dur += dur;
+          total_cnt++;
+#endif
         }
-	// RCLCPP_INFO(get_logger(), "Published");
       }
       loop_rate.sleep();
     }
@@ -251,6 +303,9 @@ namespace ros2_ipcamera
     sensor_msgs::msg::Image & msg,
     sensor_msgs::msg::CameraInfo & camera_info_msg)
   {
+#ifdef RTV_BENCHMARK
+    auto start = std::chrono::steady_clock::now();
+#endif
     // copy cv information into ros message
     msg.height = frame.rows;
     msg.width = frame.cols;
@@ -264,11 +319,19 @@ namespace ros2_ipcamera
     msg.header.stamp = stamp;
     camera_info_msg.header.frame_id = frame_id;
     camera_info_msg.header.stamp = stamp;
+
+#ifdef RTV_BENCHMARK
+    auto end = std::chrono::steady_clock::now();
+    double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+    auto &total_dur = conv_dur;
+    auto &total_cnt = conv_cnt;
+    if (floor(total_dur) != floor(total_dur + dur))
+      RCLCPP_INFO(get_logger(), "conv: %lf %d", total_dur + dur, total_cnt + 1);
+    total_dur += dur;
+    total_cnt++;
+#endif
   }
 
-  constexpr const char* kDefaultFormat = "jpeg";
-  constexpr int kDefaultPngLevel = 3;
-  constexpr int kDefaultJpegQuality = 95;
   void IpCamera::publish_fast(
       const cv::Mat & frame,
       std::string frame_id,
@@ -276,11 +339,12 @@ namespace ros2_ipcamera
       const sensor_msgs::msg::CameraInfo::SharedPtr &cam_info
     )
   {
+#ifdef RTV_BENCHMARK
+    auto start = std::chrono::steady_clock::now();
+#endif
     cam_info->header.frame_id = frame_id;
     cam_info->header.stamp = stamp;
-    info_pub_->publish(*cam_info);
 
-    RCLCPP_INFO(get_logger(), "frame type: %s", mat_type2encoding(frame.type()).c_str());
     auto img_msg_loan = img_pub_->borrow_loaned_message();
     auto &msg = img_msg_loan.get();
     msg.format = "bgr8; jpeg compressed bgr8";
@@ -289,8 +353,31 @@ namespace ros2_ipcamera
     memcpy(&msg.data[0], frame.data, size);
     msg.header.frame_id = frame_id;
     msg.header.stamp = stamp;
-
+#ifdef RTV_BENCHMARK
+    {
+      auto end = std::chrono::steady_clock::now();
+      double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+      auto &total_dur = conv_dur;
+      auto &total_cnt = conv_cnt;
+      if (floor(total_dur) != floor(total_dur + dur))
+        RCLCPP_INFO(get_logger(), "conv: %lf %d", total_dur + dur, total_cnt + 1);
+      total_dur += dur;
+      total_cnt++;
+    }
+    start = std::chrono::steady_clock::now();
+#endif
     img_pub_->publish(std::move(img_msg_loan));
+    info_pub_->publish(*cam_info);
+#ifdef RTV_BENCHMARK
+    auto end = std::chrono::steady_clock::now();
+    double dur = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+    auto &total_dur = pub_dur;
+    auto &total_cnt = pub_cnt;
+    if (floor(total_dur) != floor(total_dur + dur))
+      RCLCPP_INFO(get_logger(), "pub: %lf %d", total_dur + dur, total_cnt + 1);
+    total_dur += dur;
+    total_cnt++;
+#endif
   }
 }
 
