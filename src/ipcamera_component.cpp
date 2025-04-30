@@ -26,7 +26,9 @@ namespace ros2_ipcamera
 {
   IpCamera::IpCamera(const std::string & node_name, const rclcpp::NodeOptions & options)
   : Node(node_name, options),
-    qos_(rclcpp::QoS(rclcpp::KeepLast(1)).best_effort()),
+    qos_(declare_parameter("qos_reliability", "best_effort") == "best_effort"
+          ? rclcpp::QoS(rclcpp::KeepLast(1)).best_effort()
+          : rclcpp::QoS(rclcpp::KeepLast(1))),
     transport_delay_(rclcpp::Duration::from_seconds(0))
   {
     RCLCPP_INFO(this->get_logger(), "namespace: %s", this->get_namespace());
