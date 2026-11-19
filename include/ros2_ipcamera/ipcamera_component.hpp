@@ -112,6 +112,19 @@ namespace ros2_ipcamera
       rclcpp::Time stamp,
       const sensor_msgs::msg::CameraInfo::SharedPtr &cam_info
     );
+
+    /**
+     * Rewrite the loaded calibration to describe the stream being sent.
+     *
+     * A calibration is measured at the sensor's own resolution and the
+     * camera is usually asked for something smaller -- the axis 360 pair
+     * is calibrated at 2992 square and streams 1280. Publishing the file
+     * verbatim beside those frames is a camera_info that does not
+     * describe the image it arrives with, which does not throw and does
+     * not look wrong: it puts every pixel 2.34 times too far from the
+     * centre for anything measuring in pixels.
+     */
+    void scale_camera_info_to_stream(sensor_msgs::msg::CameraInfo & info);
   };
 }  // namespace ros2_ipcamera
 

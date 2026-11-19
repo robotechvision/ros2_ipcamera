@@ -13,6 +13,7 @@
 // limitations under the License.
 
 // #define RTV_BENCHMARK
+#include <cmath>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -215,6 +216,7 @@ namespace ros2_ipcamera
     rclcpp::Rate loop_rate(rate_);
 
     auto camera_info_msg = std::make_shared<sensor_msgs::msg::CameraInfo>(cinfo_manager_->getCameraInfo());
+    scale_camera_info_to_stream(*camera_info_msg);
 
     // Initialize OpenCV image matrices.
     
@@ -332,6 +334,52 @@ namespace ros2_ipcamera
     total_dur += dur;
     total_cnt++;
 #endif
+  }
+
+  void
+  IpCamera::scale_camera_info_to_stream(sensor_msgs::msg::CameraInfo & info)
+  {
+    if (info.width == 0 || info.height == 0)
+      return;  // no calibration loaded; there is nothing to describe
+
+    // What the capture says it is sending, which it knows even when the
+    // frames come through raw: with CAP_PROP_FORMAT -1 a frame is a byte
+    // buffer with no dimensions in it, and the backend still reports the
+    // stream's size here. Falling back to the requested size, which is
+    // what cap_.set asked the camera for.
+    int w = static_cast<int>(std::lround(cap_.get(cv::CAP_PROP_FRAME_WIDTH)));
+    int h = static_cast<int>(std::lround(cap_.get(cv::CAP_PROP_FRAME_HEIGHT)));
+    if (w <= 0 || h <= 0) {
+      w = width_;
+      h = height_;
+    }
+    if (w <= 0 || h <= 0 ||
+        (w == static_cast<int>(info.width) && h == static_cast<int>(info.height)))
+      return;
+
+    const double sx = static_cast<double>(w) / info.width;
+    const double sy = static_cast<double>(h) / info.height;
+    RCLCPP_INFO(get_logger(),
+                "calibration is %ux%u and the stream is %dx%d: scaling the "
+                "intrinsics by %.4f x %.4f so the camera_info describes the "
+                "image it is published with",
+                info.width, info.height, w, h, sx, sy);
+
+    // fx, fy, cx, cy and p's translation terms are the only pixels in
+    // here. d is not: plumb_bob's coefficients are in normalized
+    // coordinates and equidistant's are a polynomial in the angle off the
+    // axis, so neither has a size in it. r is a rotation between frames
+    // and has no size either.
+    info.k[0] *= sx; info.k[1] *= sx; info.k[2] *= sx;
+    info.k[3] *= sy; info.k[4] *= sy; info.k[5] *= sy;
+    info.p[0] *= sx; info.p[1] *= sx; info.p[2] *= sx; info.p[3] *= sx;
+    info.p[4] *= sy; info.p[5] *= sy; info.p[6] *= sy; info.p[7] *= sy;
+    info.roi.x_offset = static_cast<uint32_t>(std::lround(info.roi.x_offset * sx));
+    info.roi.y_offset = static_cast<uint32_t>(std::lround(info.roi.y_offset * sy));
+    info.roi.width = static_cast<uint32_t>(std::lround(info.roi.width * sx));
+    info.roi.height = static_cast<uint32_t>(std::lround(info.roi.height * sy));
+    info.width = w;
+    info.height = h;
   }
 
   void IpCamera::publish_fast(
